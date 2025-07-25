@@ -3,12 +3,30 @@ import { db } from '../../../db';
 
 export async function POST(req: NextRequest) {
   const url = new URL(req.url);
-  const session_id = url.pathname.split('/').slice(-2)[0];
+  const pathSegments = url.pathname.split('/');
+  // Path is: /api/game/session/[session_id]/move
+  // Index:    0   1    2       3            4
+  const session_id = pathSegments[4]; // Get the session_id from the correct index
+  
+  console.log('Move request - Session ID:', session_id, 'Path:', url.pathname);
+  
   const session = db.sessions.get(session_id);
-  if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  if (!session) {
+    console.log('Session not found:', session_id);
+    console.log('Available sessions:', Array.from(db.sessions.keys()));
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+  
   const { letter_clicked, letter_color } = await req.json();
-  const config = db.config;
+  
+  // Use the session's own config instead of global config
+  const config = session.config;
   const round = config.rounds[session.current_round];
+  
+  if (!round) {
+    return NextResponse.json({ error: 'Invalid round' }, { status: 400 });
+  }
+  
   const expected = round.letters[session.caught_letters.length];
   let is_correct = false;
   let round_completed = false;

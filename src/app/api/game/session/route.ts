@@ -1,19 +1,30 @@
 import { db } from '../db';
-import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
-  const { player_id } = await req.json();
-  const id = randomUUID();
-  const newSession = {
-    id,
-    player_id,
-    current_round: 0,
-    score: 0,
-    attempts_remaining: db.config.max_attempts,
-    caught_letters: [],
-    is_completed: false,
-  };
-  db.sessions.set(id, newSession);
-  return NextResponse.json(newSession);
+  try {
+    const { player_id } = await req.json();
+    
+    if (!player_id) {
+      return NextResponse.json(
+        { error: 'Player ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    // Create new session with its own config
+    const newSession = db.createSession(player_id);
+    
+    console.log('Creating session with ID:', newSession.id);
+    console.log('Session config has', newSession.config.rounds.length, 'rounds');
+    console.log('Total sessions:', db.sessions.size);
+    
+    return NextResponse.json(newSession);
+  } catch (error) {
+    console.error('Error creating session:', error);
+    return NextResponse.json(
+      { error: 'Failed to create session' },
+      { status: 500 }
+    );
+  }
 }

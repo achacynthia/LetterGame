@@ -22,6 +22,10 @@ interface Session {
   caught_letters: string[];
   is_completed: boolean;
   final_reward?: string;
+  config?: {
+    rounds: { word: string; letters: LetterObj[] }[];
+    max_attempts: number;
+  };
 }
 
 export default function CatchTheSquareGame() {
@@ -113,26 +117,34 @@ export default function CatchTheSquareGame() {
     setTimeout(() => setShowConfetti(false), 3000);
   }, []);
 
-  // Fetch game configuration
-  const fetchGameConfig = async () => {
+  // Fetch game configuration for a specific session
+  const fetchGameConfig = async (sessionId: string) => {
     try {
-      const response = await axios.get(`${API}/game/config`);
+      const response = await axios.get(`${API}/game/config?session_id=${sessionId}`);
       setGameConfig(response.data);
-      console.log('Game config loaded:', response.data);
+      console.log('Game config loaded for session:', sessionId, response.data);
+      return response.data;
     } catch (error) {
       setError('Failed to load game configuration');
+      return null;
     }
   };
 
-  // Create new game session
+  // Create new game session and fetch its config
   const createGameSession = async () => {
     try {
       setLoading(true);
       const response = await axios.post(`${API}/game/session`, {
         player_id: `player_${Date.now()}`
       });
-      setCurrentSession(response.data);
-      return response.data;
+      const session = response.data;
+      setCurrentSession(session);
+      
+      // Set the game config from the session
+      setGameConfig(session.config);
+      console.log('Session created with config:', session.config);
+      
+      return session;
     } catch (error) {
       setError('Failed to create game session');
       return null;
@@ -143,6 +155,7 @@ export default function CatchTheSquareGame() {
 
   // Make a move in the game
   const makeMove = async (letter: string, color: string) => {
+    console.log('Making move:', {letter, color, currentSession });
     if (!currentSession) return;
     try {
       const response = await axios.post(`${API}/game/session/${currentSession.id}/move`, {
@@ -436,9 +449,10 @@ export default function CatchTheSquareGame() {
     };
   }, [gameStarted, gameOver, animate]);
 
-  useEffect(() => {
-    fetchGameConfig();
-  }, []);
+  // Remove the initial config fetch since we now get config when creating a session
+  // useEffect(() => {
+  //   fetchGameConfig();
+  // }, []);
 
   if (loading) {
     return (
@@ -460,18 +474,6 @@ export default function CatchTheSquareGame() {
             <h2>Error</h2>
             <p>{error}</p>
             <Button onClick={() => window.location.reload()}>Reload</Button>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!gameConfig) {
-    return (
-      <div className="game-container">
-        <Card className="game-welcome">
-          <div className="welcome-content">
-            <h2>Loading game...</h2>
           </div>
         </Card>
       </div>
@@ -516,6 +518,19 @@ export default function CatchTheSquareGame() {
             <Button onClick={startGame} className="restart-button" disabled={loading}>
               {loading ? 'Starting...' : 'Play Again'}
             </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // If game is started but config not loaded yet, show loading
+  if (gameStarted && !gameConfig) {
+    return (
+      <div className="game-container">
+        <Card className="game-welcome">
+          <div className="welcome-content">
+            <h2>Loading game...</h2>
           </div>
         </Card>
       </div>
