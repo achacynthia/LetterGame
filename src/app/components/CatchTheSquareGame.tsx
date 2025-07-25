@@ -137,6 +137,11 @@ export default function CatchTheSquareGame() {
   // Initialize squares for current round
   const initializeSquares = useCallback(() => {
     if (!requiredLetters.length) return;
+    // Adjust spawn area to avoid score panel (top 100px)
+    const spawnTop = 120; // leave space for header
+    const spawnHeight = 430; // 550 - 120
+    const spawnLeft = 0;
+    const spawnWidth = 750;
     const centerX = 375;
     const centerY = 275;
     const spread = 80;
@@ -145,7 +150,7 @@ export default function CatchTheSquareGame() {
       letter: letterObj.letter,
       color: letterObj.color,
       x: centerX + (Math.random() - 0.5) * spread,
-      y: centerY + (Math.random() - 0.5) * spread,
+      y: centerY + (Math.random() - 0.5) * spread + spawnTop,
       dx: (Math.random() - 0.5) * 4,
       dy: (Math.random() - 0.5) * 4,
       angle: Math.random() * Math.PI * 2,
@@ -167,7 +172,7 @@ export default function CatchTheSquareGame() {
         letter: randomLetter,
         color: randomColor,
         x: centerX + (Math.random() - 0.5) * spread,
-        y: centerY + (Math.random() - 0.5) * spread,
+        y: centerY + (Math.random() - 0.5) * spread + spawnTop,
         dx: (Math.random() - 0.5) * 4,
         dy: (Math.random() - 0.5) * 4,
         angle: Math.random() * Math.PI * 2,
@@ -187,7 +192,7 @@ export default function CatchTheSquareGame() {
         letter: correctLetter.letter,
         color: wrongColor,
         x: centerX + (Math.random() - 0.5) * spread,
-        y: centerY + (Math.random() - 0.5) * spread,
+        y: centerY + (Math.random() - 0.5) * spread + spawnTop,
         dx: (Math.random() - 0.5) * 4,
         dy: (Math.random() - 0.5) * 4,
         angle: Math.random() * Math.PI * 2,
@@ -196,7 +201,10 @@ export default function CatchTheSquareGame() {
         speed: 1
       });
     }
-    const allSquares = [...correctSquares, ...distractorSquares, ...wrongColorSquares];
+    // Ensure all correct letters are present in the final squares
+    const allSquares = [...correctSquares];
+    // Add distractors and wrong color squares, but never remove correctSquares
+    allSquares.push(...distractorSquares, ...wrongColorSquares);
     const shuffledSquares = allSquares.sort(() => Math.random() - 0.5);
     setMovingSquares(shuffledSquares);
   }, [requiredLetters]);
@@ -205,7 +213,8 @@ export default function CatchTheSquareGame() {
   const animate = useCallback(() => {
     setMovingSquares(prevSquares => prevSquares.map(square => {
       if (square.caught) return square;
-      if (hoveredSquare === square.id) return square;
+      // Only pause the hovered square, not all
+      if (hoveredSquare && hoveredSquare === square.id) return square;
       const newPosition = getMovementPattern(currentRound, square);
       return { ...square, ...newPosition };
     }));
