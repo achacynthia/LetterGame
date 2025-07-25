@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '../../../db';
 
-export async function POST(req: NextRequest, { params }: { params: { session_id: string } }) {
-  const session = db.sessions.get(params.session_id);
+export async function POST(req: NextRequest) {
+  const url = new URL(req.url);
+  const session_id = url.pathname.split('/').slice(-2)[0];
+  const session = db.sessions.get(session_id);
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   const { letter_clicked, letter_color } = await req.json();
   const config = db.config;
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { session_id:
       session.final_reward = session.score >= 50 ? (session.score >= 70 ? (session.score === 100 ? '🏆 Goal Box' : '💰 Dollar Box') : '🪙 Coin Box') : '❌ Try Again';
     }
   }
-  db.sessions.set(params.session_id, session);
+  db.sessions.set(session_id, session);
   return NextResponse.json({
     is_correct,
     session,
