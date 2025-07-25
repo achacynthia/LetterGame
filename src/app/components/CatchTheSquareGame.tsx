@@ -39,15 +39,86 @@ export default function CatchTheSquareGame() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [hoveredSquare, setHoveredSquare] = useState<string | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   const gameAreaRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
+  const lastMoveTimeRef = useRef<number>(0);
+
+  // Sound effects using Web Audio API
+  const playSound = useCallback((frequency: number, duration: number, type: 'sine' | 'square' | 'sawtooth' = 'sine', volume: number = 0.3) => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = frequency;
+      oscillator.type = type;
+      gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + duration);
+    } catch (error) {
+      console.log('Audio not supported');
+    }
+  }, []);
+
+  // Sound effect functions
+  const playBoxClickSound = useCallback(() => {
+    playSound(800, 0.1, 'square', 0.2);
+  }, [playSound]);
+
+  const playCorrectMoveSound = useCallback(() => {
+    // Success chord
+    playSound(523, 0.15, 'sine', 0.3); // C
+    setTimeout(() => playSound(659, 0.15, 'sine', 0.3), 50); // E
+    setTimeout(() => playSound(784, 0.2, 'sine', 0.3), 100); // G
+  }, [playSound]);
+
+  const playWrongMoveSound = useCallback(() => {
+    playSound(200, 0.3, 'sawtooth', 0.2);
+  }, [playSound]);
+
+  const playRoundCompleteSound = useCallback(() => {
+    // Ascending notes
+    playSound(523, 0.2, 'sine', 0.3); // C
+    setTimeout(() => playSound(659, 0.2, 'sine', 0.3), 100); // E
+    setTimeout(() => playSound(784, 0.2, 'sine', 0.3), 200); // G
+    setTimeout(() => playSound(1047, 0.3, 'sine', 0.3), 300); // C high
+  }, [playSound]);
+
+  const playGameOverSound = useCallback(() => {
+    // Descending sad notes
+    playSound(400, 0.3, 'sine', 0.3);
+    setTimeout(() => playSound(350, 0.3, 'sine', 0.3), 200);
+    setTimeout(() => playSound(300, 0.4, 'sine', 0.3), 400);
+  }, [playSound]);
+
+  const playGameWonSound = useCallback(() => {
+    // Victory fanfare
+    playSound(523, 0.2, 'sine', 0.3); // C
+    setTimeout(() => playSound(659, 0.2, 'sine', 0.3), 100); // E
+    setTimeout(() => playSound(784, 0.2, 'sine', 0.3), 200); // G
+    setTimeout(() => playSound(1047, 0.3, 'sine', 0.3), 300); // C high
+    setTimeout(() => playSound(1319, 0.4, 'sine', 0.3), 500); // E high
+  }, [playSound]);
+
+  // Confetti effect
+  const triggerConfetti = useCallback(() => {
+    setShowConfetti(true);
+    setTimeout(() => setShowConfetti(false), 3000);
+  }, []);
 
   // Fetch game configuration
   const fetchGameConfig = async () => {
     try {
       const response = await axios.get(`${API}/game/config`);
       setGameConfig(response.data);
+      console.log('Game config loaded:', response.data);
     } catch (error) {
       setError('Failed to load game configuration');
     }
@@ -84,25 +155,38 @@ export default function CatchTheSquareGame() {
       setScore(session.score);
       setAttempts(session.attempts_remaining);
       setCaughtLetters([...session.caught_letters]);
+      
       if (is_correct) {
+        playCorrectMoveSound();
         setMovingSquares(prev => prev.map(s => s.letter === letter && s.color === color && s.isCorrect ? { ...s, caught: true } : s));
         if (round_completed) {
+          playRoundCompleteSound();
           if (session.current_round === 3 || (session.current_round === 2 && round_completed)) {
             setShowReward(true);
             setTimeout(() => setShowReward(false), 3000);
           }
           if (game_completed) {
+            playGameWonSound();
+            triggerConfetti();
             setFinalReward(session.final_reward);
             setGameOver(true);
           } else {
             setTimeout(() => {
               setCaughtLetters([]);
-              initializeSquares();
             }, 1000);
           }
         }
+      } else {
+        playWrongMoveSound();
       }
+      
       if (game_completed) {
+        if (session.final_reward && session.final_reward !== '❌ Below 50% = Try Again') {
+          playGameWonSound();
+          triggerConfetti();
+        } else {
+          playGameOverSound();
+        }
         setFinalReward(session.final_reward);
         setGameOver(true);
       }
@@ -117,18 +201,69 @@ export default function CatchTheSquareGame() {
   // Movement patterns
   const getMovementPattern = (round: number, square: any) => {
     const { x, y, dx, dy, angle } = square;
+    const boundaries = { left: 0, right: 750, top: 120, bottom: 550 };
+    
     switch (round) {
       case 0:
-        return { x: x + dx, y: y + dy, dx: x + dx > 750 || x + dx < 0 ? -dx : dx, dy: y + dy > 550 || y + dy < 0 ? -dy : dy };
+        // Simple bounce with better spacing
+        let newX = x + dx * 1.5;
+        let newY = y + dy * 1.5;
+        let newDx = dx;
+        let newDy = dy;
+        
+        if (newX > boundaries.right - 40 || newX < boundaries.left + 40) newDx = -dx;
+        if (newY > boundaries.bottom - 40 || newY < boundaries.top + 40) newDy = -dy;
+        
+        return { x: newX, y: newY, dx: newDx, dy: newDy };
+        
       case 1:
-        return { x: x + dx + (Math.random() - 0.5) * 2, y: y + dy + (Math.random() - 0.5) * 2, dx: x + dx > 750 || x + dx < 0 ? -dx + (Math.random() - 0.5) : dx, dy: y + dy > 550 || y + dy < 0 ? -dy + (Math.random() - 0.5) : dy };
+        // Erratic movement with collision avoidance
+        const randomOffsetX = (Math.random() - 0.5) * 3;
+        const randomOffsetY = (Math.random() - 0.5) * 3;
+        let erraticX = x + dx * 1.2 + randomOffsetX;
+        let erraticY = y + dy * 1.2 + randomOffsetY;
+        let erraticDx = dx;
+        let erraticDy = dy;
+        
+        if (erraticX > boundaries.right - 50 || erraticX < boundaries.left + 50) {
+          erraticDx = -dx + (Math.random() - 0.5) * 2;
+        }
+        if (erraticY > boundaries.bottom - 50 || erraticY < boundaries.top + 50) {
+          erraticDy = -dy + (Math.random() - 0.5) * 2;
+        }
+        
+        return { x: erraticX, y: erraticY, dx: erraticDx, dy: erraticDy };
+        
       case 2:
-        const starRadius = 100 + Math.sin(angle) * 50;
-        return { x: 375 + starRadius * Math.cos(angle), y: 275 + starRadius * Math.sin(angle), angle: angle + 0.05 };
+        // Star pattern with varying radii to prevent clustering
+        const baseRadius = 120 + (Math.sin(angle * 2) * 40);
+        const starAngle = angle + 0.04;
+        const starX = 375 + baseRadius * Math.cos(starAngle);
+        const starY = 275 + baseRadius * Math.sin(starAngle);
+        
+        return { x: starX, y: starY, angle: starAngle };
+        
       case 3:
-        return { x: 375 + 150 * Math.cos(angle), y: 275 + 150 * Math.sin(angle), angle: angle + 0.03 };
+        // Circular with different orbit sizes
+        const orbitRadius = 100 + (square.id.charCodeAt(square.id.length - 1) % 5) * 20;
+        const circleAngle = angle + 0.025;
+        const circleX = 375 + orbitRadius * Math.cos(circleAngle);
+        const circleY = 275 + orbitRadius * Math.sin(circleAngle);
+        
+        return { x: circleX, y: circleY, angle: circleAngle };
+        
       case 4:
-        return { x: x + dx, y: 275 + 100 * Math.sin(x * 0.02), dx: x + dx > 750 || x + dx < 0 ? -dx : dx };
+        // Wave pattern with different amplitudes and phases
+        const wavePhase = (square.id.charCodeAt(square.id.length - 1) % 4) * Math.PI / 2;
+        let waveX = x + dx * 1.3;
+        const waveAmplitude = 80 + (square.id.charCodeAt(square.id.length - 1) % 3) * 30;
+        const waveY = 275 + waveAmplitude * Math.sin((waveX * 0.015) + wavePhase);
+        let waveDx = dx;
+        
+        if (waveX > boundaries.right - 40 || waveX < boundaries.left + 40) waveDx = -dx;
+        
+        return { x: waveX, y: waveY, dx: waveDx };
+        
       default:
         return square;
     }
@@ -144,85 +279,116 @@ export default function CatchTheSquareGame() {
     const spawnWidth = 750;
     const centerX = 375;
     const centerY = 275;
-    const spread = 80;
-    const correctSquares = requiredLetters.map((letterObj, index) => ({
-      id: `correct_${index}`,
-      letter: letterObj.letter,
-      color: letterObj.color,
-      x: centerX + (Math.random() - 0.5) * spread,
-      y: centerY + (Math.random() - 0.5) * spread + spawnTop,
-      dx: (Math.random() - 0.5) * 4,
-      dy: (Math.random() - 0.5) * 4,
-      angle: Math.random() * Math.PI * 2,
-      caught: false,
-      isCorrect: true,
-      speed: 1
-    }));
+    const spread = 150; // Increased spread to reduce clustering
+    
+    // Create a grid-like initial positioning to avoid clustering
+    const gridSize = Math.ceil(Math.sqrt(requiredLetters.length + 8)); // +8 for distractors
+    const cellWidth = spawnWidth / gridSize;
+    const cellHeight = spawnHeight / gridSize;
+    
+    const correctSquares = requiredLetters.map((letterObj, index) => {
+      const gridX = (index % gridSize) * cellWidth + cellWidth / 2;
+      const gridY = Math.floor(index / gridSize) * cellHeight + cellHeight / 2 + spawnTop;
+      
+      return {
+        id: `correct_${index}`,
+        letter: letterObj.letter,
+        color: letterObj.color,
+        x: gridX + (Math.random() - 0.5) * 60, // Small random offset
+        y: gridY + (Math.random() - 0.5) * 60,
+        dx: (Math.random() - 0.5) * 5, // Increased speed variety
+        dy: (Math.random() - 0.5) * 5,
+        angle: Math.random() * Math.PI * 2,
+        caught: false,
+        isCorrect: true,
+        speed: 1 + Math.random() * 0.5 // Speed variation
+      };
+    });
+    
     const distractorLetters = ['B', 'D', 'F', 'G', 'J', 'K', 'M', 'Q', 'V', 'W', 'X', 'Z'];
     const wordLetters = requiredLetters.map(l => l.letter);
     const availableDistractors = distractorLetters.filter(letter => !wordLetters.includes(letter));
     const distractorColors = ['#FF9999', '#99FF99', '#9999FF', '#FFFF99', '#FF99FF', '#99FFFF'];
     const numDistractors = Math.floor(Math.random() * 3) + 3;
     const distractorSquares = [];
+    
     for (let i = 0; i < numDistractors; i++) {
       const randomLetter = availableDistractors[Math.floor(Math.random() * availableDistractors.length)];
       const randomColor = distractorColors[Math.floor(Math.random() * distractorColors.length)];
+      const gridIndex = requiredLetters.length + i;
+      const gridX = (gridIndex % gridSize) * cellWidth + cellWidth / 2;
+      const gridY = Math.floor(gridIndex / gridSize) * cellHeight + cellHeight / 2 + spawnTop;
+      
       distractorSquares.push({
         id: `distractor_${i}`,
         letter: randomLetter,
         color: randomColor,
-        x: centerX + (Math.random() - 0.5) * spread,
-        y: centerY + (Math.random() - 0.5) * spread + spawnTop,
-        dx: (Math.random() - 0.5) * 4,
-        dy: (Math.random() - 0.5) * 4,
+        x: gridX + (Math.random() - 0.5) * 60,
+        y: gridY + (Math.random() - 0.5) * 60,
+        dx: (Math.random() - 0.5) * 5,
+        dy: (Math.random() - 0.5) * 5,
         angle: Math.random() * Math.PI * 2,
         caught: false,
         isCorrect: false,
-        speed: 1
+        speed: 1 + Math.random() * 0.5
       });
     }
+    
     const wrongColorSquares = [];
     const wrongColors = distractorColors.filter(color => !requiredLetters.some(req => req.color === color));
     const numWrongColors = Math.min(Math.floor(Math.random() * 2) + 2, requiredLetters.length);
+    
     for (let i = 0; i < numWrongColors; i++) {
       const correctLetter = requiredLetters[i % requiredLetters.length];
       const wrongColor = wrongColors[Math.floor(Math.random() * wrongColors.length)];
+      const gridIndex = requiredLetters.length + numDistractors + i;
+      const gridX = (gridIndex % gridSize) * cellWidth + cellWidth / 2;
+      const gridY = Math.floor(gridIndex / gridSize) * cellHeight + cellHeight / 2 + spawnTop;
+      
       wrongColorSquares.push({
         id: `wrong_color_${i}`,
         letter: correctLetter.letter,
         color: wrongColor,
-        x: centerX + (Math.random() - 0.5) * spread,
-        y: centerY + (Math.random() - 0.5) * spread + spawnTop,
-        dx: (Math.random() - 0.5) * 4,
-        dy: (Math.random() - 0.5) * 4,
+        x: gridX + (Math.random() - 0.5) * 60,
+        y: gridY + (Math.random() - 0.5) * 60,
+        dx: (Math.random() - 0.5) * 5,
+        dy: (Math.random() - 0.5) * 5,
         angle: Math.random() * Math.PI * 2,
         caught: false,
         isCorrect: false,
-        speed: 1
+        speed: 1 + Math.random() * 0.5
       });
     }
-    // Ensure all correct letters are present in the final squares
-    const allSquares = [...correctSquares];
-    // Add distractors and wrong color squares, but never remove correctSquares
-    allSquares.push(...distractorSquares, ...wrongColorSquares);
-    const shuffledSquares = allSquares.sort(() => Math.random() - 0.5);
+    
+    // Combine all squares and shuffle
+    const shuffledSquares = [...distractorSquares, ...correctSquares, ...wrongColorSquares].sort(() => Math.random() - 0.5);
+    console.log('Initialized squares:', shuffledSquares);
     setMovingSquares(shuffledSquares);
   }, [requiredLetters]);
 
   // Animation loop
   const animate = useCallback(() => {
-    setMovingSquares(prevSquares => prevSquares.map(square => {
-      if (square.caught) return square;
-      // Only pause the hovered square, not all
-      if (hoveredSquare && hoveredSquare === square.id) return square;
-      const newPosition = getMovementPattern(currentRound, square);
-      return { ...square, ...newPosition };
-    }));
+    const currentTime = Date.now();
+    const timeDiff = currentTime - lastMoveTimeRef.current;
+
+    // Only move squares if 100ms have passed since last movement
+    if (timeDiff >= 50) {
+      setMovingSquares(prevSquares => prevSquares.map(square => {
+        if (square.caught) return square;
+        // Only pause the hovered square, not all
+        if (hoveredSquare && hoveredSquare === square.id) return square;
+        const newPosition = getMovementPattern(currentRound, square);
+        return { ...square, ...newPosition };
+      }));
+      lastMoveTimeRef.current = currentTime;
+    }
+    
     animationRef.current = window.requestAnimationFrame(animate);
   }, [currentRound, hoveredSquare]);
 
   // Handle square click
   const handleSquareClick = (square: any) => {
+    playBoxClickSound();
     if (square.isCorrect) {
       const expectedLetter = requiredLetters[caughtLetters.length];
       if (square.letter === expectedLetter.letter && square.color === expectedLetter.color) {
@@ -253,12 +419,14 @@ export default function CatchTheSquareGame() {
 
   useEffect(() => {
     if (gameStarted && !gameOver && gameConfig) {
+      console.log('Starting game, initializing squares for round:', currentRound);
       initializeSquares();
     }
   }, [currentRound, gameStarted, gameOver, initializeSquares, gameConfig]);
 
   useEffect(() => {
     if (gameStarted && !gameOver) {
+      lastMoveTimeRef.current = Date.now(); // Initialize the timer
       animationRef.current = window.requestAnimationFrame(animate);
     }
     return () => {
@@ -356,6 +524,21 @@ export default function CatchTheSquareGame() {
 
   return (
     <div className="game-container">
+      {showConfetti && (
+        <div className="confetti-container">
+          {Array.from({ length: 50 }).map((_, i) => (
+            <div
+              key={i}
+              className="confetti-piece"
+              style={{
+                left: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 3}s`,
+                backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'][Math.floor(Math.random() * 6)]
+              }}
+            />
+          ))}
+        </div>
+      )}
       <div className="game-header">
         <div className="game-stats">
           <Badge variant="secondary">Round: {currentRound + 1}/5</Badge>
